@@ -1,0 +1,7 @@
+.venv
+fabric_config/*tokens*
+fabric_config/fabric_rc
+fabric_config/*_key*
+fabric_config/*_config*
+captures/*.pcap
+*cache*
