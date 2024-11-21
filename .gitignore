@@ -5,3 +5,4 @@ fabric_config/*_key*
 fabric_config/*_config*
 captures/*.pcap
 *cache*
+*DS_Store*
