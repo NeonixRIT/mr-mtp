@@ -29,7 +29,7 @@ With these requirements laid out, a majority of the work is creating structures 
 `bgp_messages.py` - Contains the complete structure definitions for all four BGP messages (OPEN, UPDATE, KEEPALIVE, NOTIFICATION) and how to parse bytes into these messages
 `bgp_messages_test.py` - Contains examples for creating each message type and tests to ensure encoding and decoding work as intended
 
-All thats left is creating and managing BGP sessions, which becomes trivial since most functionality doesn't need to be implemented. Simply the ability to send and recieve data as well as the ability to do a BGP handshake.
+All thats left is creating and managing BGP sessions, which becomes trivial since most functionality of BGP doesn't need to be implemented. Simply the ability to send and recieve data as well as the ability to do a BGP handshake.
 
 `transport.py` - Wrapper class for managing a TCP socket using python sockets
 `bgp_router.py` - Uses transport wrapper to conduct a BGP handshake with another peer and establish a valid BGP session
