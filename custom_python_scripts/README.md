@@ -24,19 +24,19 @@ BGP Sessions are rather simple to establish for the most part. First, BGP sessio
 # Solution
 With these requirements laid out, a majority of the work is creating structures to easily create BGP messages and convert those messages to bytes and parse them from bytes. The following files contain these definitions, relying heavily on object oriented programming:
 
-`fields.py` -  Contains the most abstract versions of data structures used to build BGP packets, as well as defenitions for converting primitive types into bytes for a BGP packet
-`bgp_fields.py` - Contains most fields found in various BGP messages that usually contain more complex data structures such that these fields now have meaning in the context of BGP
-`bgp_messages.py` - Contains the complete structure definitions for all four BGP messages (OPEN, UPDATE, KEEPALIVE, NOTIFICATION) and how to parse bytes into these messages
-`bgp_messages_test.py` - Contains examples for creating each message type and tests to ensure encoding and decoding work as intended
+- `fields.py` -  Contains the most abstract versions of data structures used to build BGP packets, as well as defenitions for converting primitive types into bytes for a BGP packet
+- `bgp_fields.py` - Contains most fields found in various BGP messages that usually contain more complex data structures such that these fields now have meaning in the context of BGP
+- `bgp_messages.py` - Contains the complete structure definitions for all four BGP messages (OPEN, UPDATE, KEEPALIVE, NOTIFICATION) and how to parse bytes into these messages
+- `bgp_messages_test.py` - Contains examples for creating each message type and tests to ensure encoding and decoding work as intended
 
 All thats left is creating and managing BGP sessions, which becomes trivial since most functionality of BGP doesn't need to be implemented. Simply the ability to send and recieve data as well as the ability to do a BGP handshake.
 
-`transport.py` - Wrapper class for managing a TCP socket using python sockets
-`bgp_router.py` - Uses transport wrapper to conduct a BGP handshake with another peer and establish a valid BGP session
+- `transport.py` - Wrapper class for managing a TCP socket using python sockets
+- `bgp_router.py` - Uses transport wrapper to conduct a BGP handshake with another peer and establish a valid BGP session
 
 It is now possible to establish and manage BGP peer sessions and create and send arbitrary BGP messages to peers
 
 # Other files
-`scapy_tcp_injection.py` - This file uses scapy to injecting a BGP UPDATE message into a local TCP session that is simulating an established BGP session. The same code can be used in an FRR BGP session and demonstrate the issue mentioned earlier.
+- `scapy_tcp_injection.py` - This file uses scapy to injecting a BGP UPDATE message into a local TCP session that is simulating an established BGP session. The same code can be used in an FRR BGP session and demonstrate the issue mentioned earlier.
 
 
