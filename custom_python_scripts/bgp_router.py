@@ -230,18 +230,10 @@ class BGPPeer:
         bgp_peer = BGPPeer(peer_hostname, peer_domain_name, peer_software_version, peer_ip, peer_asn, peer_hold_time, marker=peer_marker, four_byte_asn=has_four_byte_asn)
         bgp_session = BGPSession(session_transport, self, bgp_peer, marker=peer_marker)
 
-        # Clean up memory
-        del peer_msg1_bytes
-        del peer_open_msg
-        del parsed_msg1
-
         # Exchange BGPKeepAlive messages
         parsed_msg2 = next(bgp_session.recv())
         self.__verify_message_type(parsed_msg2, BGPKeepAlive)
         bgp_session.send(self.create_keepalive())
-
-        # Clean up memory
-        del parsed_msg2
 
         # Exchange BGPUpdate messages
         update_messages: list[BGPUpdate] = self.create_updates()
@@ -267,18 +259,10 @@ class BGPPeer:
                     route_info.local_pref = attr.local_pref
             bgp_session.bgp_peer.routes.append(route_info)
 
-        # Clean up memory
-        del update_messages
-        del peer_update_msgs
-        del parsed_msg3
-
         # Exchange BGPKeepAlive messages again
         parsed_msg4 = next(bgp_session.recv())
         self.__verify_message_type(parsed_msg4, BGPKeepAlive)
         bgp_session.send(self.create_keepalive())
-
-        # Clean up memory
-        del parsed_msg4
 
         self.sessions.append(bgp_session)
         bgp_session.start()
@@ -355,9 +339,10 @@ def main():
         local_address = '192.168.0.1'
         local_asn = 64510
         local_hostname = 'H-1'
+        local_domain_name = ''
         local_hold_time = 15
         local_software_version = 'FRRouting/10.1.1'
-        local_peer = BGPPeer(local_hostname, '', local_software_version, local_address, local_asn, local_hold_time)
+        local_peer = BGPPeer(local_hostname, local_domain_name, local_software_version, local_address, local_asn, local_hold_time)
 
         # Connect establish BGP session with remote BGP peer
         remote_peer_address = '192.168.0.254'
