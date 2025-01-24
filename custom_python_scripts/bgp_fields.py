@@ -266,8 +266,8 @@ class MultiprotocolExtensions(Capability):  # 1
         self.length.dependencies.extend([self.afi, self.reserved, self.safi])
 
     def parse(data: bytes) -> 'MultiprotocolExtensions':
-        afi = int.from_bytes(data[2:4], 'big')
-        safi = int.from_bytes(data[5:6], 'big')
+        afi = int.from_bytes(data[:2], 'big')
+        safi = int.from_bytes(data[3:4], 'big')
         return MultiprotocolExtensions(afi, safi)
 
 
@@ -320,7 +320,7 @@ class FourOctetASNumber(Capability):  # 65
         self.length.dependencies.append(self.asn)
 
     def parse(data: bytes) -> 'FourOctetASNumber':
-        return FourOctetASNumber(int.from_bytes(data[2:], 'big'))
+        return FourOctetASNumber(int.from_bytes(data, 'big'))
 
 
 class Dynamic(Capability):  # 67
@@ -342,9 +342,9 @@ class AdditionalPaths(Capability):  # 69
         self.length.dependencies.extend(fields)
 
     def parse(data: bytes) -> 'AdditionalPaths':
-        afi = int.from_bytes(data[2:4], 'big')
-        safi = int.from_bytes(data[4:5], 'big')
-        receive = bool(data[5])
+        afi = int.from_bytes(data[:2], 'big')
+        safi = int.from_bytes(data[2:3], 'big')
+        receive = bool(data[3])
         return AdditionalPaths(afi, safi, receive)
 
 
@@ -364,7 +364,7 @@ class LongLivedGracefulRestart(Capability):  # 71
         self.length.dependencies.append(self.unknown)
 
     def parse(data: bytes) -> 'LongLivedGracefulRestart':
-        return LongLivedGracefulRestart(int.from_bytes(data[2:], 'big'))
+        return LongLivedGracefulRestart(int.from_bytes(data, 'big'))
 
 
 class FQDN(Capability):  # 73
@@ -380,9 +380,10 @@ class FQDN(Capability):  # 73
 
     def parse(data: bytes) -> 'FQDN':
         hostname_length = int.from_bytes(data[:1], 'big')
-        hostname = data[1 : 1 + hostname_length].decode()
-        domain_name_length = int.from_bytes(data[1 + hostname_length : 2 + hostname_length], 'big')
-        domain_name = data[2 + hostname_length : 2 + hostname_length + domain_name_length].decode()
+        hostname = data[1:hostname_length + 1].decode()
+        data = data[hostname_length + 1:]
+        domain_name_length = int.from_bytes(data[:1], 'big')
+        domain_name = data[1:domain_name_length + 1].decode()
         return FQDN(hostname, domain_name)
 
 
@@ -394,9 +395,10 @@ class SoftwareVersion(Capability):  # 75
         self.software_version_length = LengthField([self.software_version], 1, 'Software Version Length')
         self.append(self.software_version_length)
         self.append(self.software_version)
+        self.length.dependencies.extend([self.software_version_length, self.software_version])
 
     def parse(data: bytes) -> 'SoftwareVersion':
-        return SoftwareVersion(data.decode())
+        return SoftwareVersion(data[1:].decode())
 
 
 class PathsLimit(Capability):  # 76
@@ -412,7 +414,7 @@ class PathsLimit(Capability):  # 76
         self.length.dependencies.append(self.unknown)
 
     def parse(data: bytes) -> 'PathsLimit':
-        return PathsLimit(int.from_bytes(data[2:], 'big'))
+        return PathsLimit(int.from_bytes(data, 'big'))
 
 
 CAPABILITY_TYPE_MAP = {
@@ -470,7 +472,7 @@ class OptionalParameter(ListField):
         capability_type = data[2]
         if capability_type not in capability_type_map:
             raise ValueError(f'Unknown capability type: {capability_type}')
-        capability = capability_type_map[capability_type].parse(data[2:])
+        capability = capability_type_map[capability_type].parse(data[4:])
         opt_param = OptionalParameter(2)
         opt_param.set_capability(capability)
         return opt_param

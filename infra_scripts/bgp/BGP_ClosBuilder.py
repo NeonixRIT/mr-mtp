@@ -16,7 +16,7 @@ from typing import Any
 
 # FABRIC Configuration
 SLICE_NAME = "bgp_sec_test_kam"
-SITE_NAME = "WASH"
+SITE_NAME = "STAR"
 MEAS_ADD = False
 
 # Folded-Clos Configuration
@@ -35,7 +35,7 @@ TEMPLATE_LOCATION = "./remote_scripts/frr_templates/frr_conf_bgp.mako"
 
 
 def setup_manager():
-    fablib = fablib_manager(project_id='fec0d0d8-a7a8-4eac-b091-87f7914af796')
+    fablib = fablib_manager(project_id='fec0d0d8-a7a8-4eac-b091-87f7914af796', fabric_rc='')
     fablib.show_config()
     fablib.probe_bastion_host()
     return fablib

