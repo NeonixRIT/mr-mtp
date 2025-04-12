@@ -232,24 +232,17 @@ class BGPPeer:
         bgp_session = BGPSession(session_transport, self, bgp_peer, marker=peer_marker)
 
         # Exchange BGPKeepAlive messages
-        parsed_msg2 = bgp_session.recv()[0]
+        bgp_session.start_keepalive()
+        parsed_msg2 = bgp_session.recv(ignore_keepalive=False)[0]
         verify_message_type(parsed_msg2, BGPKeepAlive)
-        bgp_session.send(self.create_keepalive())
 
         # Exchange BGPUpdate messages
         update_messages: list[BGPUpdate] = self.create_updates(bgp_session)
-
-        # Continue sendrecv until response update message is found
         parsed_msg3 = bgp_session.sendrecv(update_messages)
-        while True:
-            if isinstance(parsed_msg3[0], BGPKeepAlive):
-                parsed_msg3 = bgp_session.sendrecv(self.create_keepalive())
-                continue
-            for msg in parsed_msg3:
-                verify_message_type(msg, BGPUpdate)
-            break
+        for msg in parsed_msg3:
+            verify_message_type(msg, BGPUpdate)
 
-        peer_update_msgs: BGPUpdate = parsed_msg3
+        peer_update_msgs: list[BGPUpdate] = parsed_msg3
 
         # Parse update messages to determine peer routes
         for update_msg in peer_update_msgs:
@@ -273,12 +266,11 @@ class BGPPeer:
             bgp_session.bgp_peer.routes.append(route_info)
 
         # Exchange BGPKeepAlive messages again
-        parsed_msg4 = bgp_session.recv()[0]
+        # keep alive loop will send it's own in the background
+        parsed_msg4 = bgp_session.recv(ignore_keepalive=False)[0]
         verify_message_type(parsed_msg4, BGPKeepAlive)
-        bgp_session.send(self.create_keepalive())
 
         self.sessions.append(bgp_session)
-        bgp_session.start()
         return bgp_session
 
 
@@ -313,26 +305,34 @@ class BGPSession:
             data += message.to_bytes()
         self.transport.send(data)
 
-    def recv(self) -> list[BGPKeepAlive | BGPOpen | BGPUpdate | BGPNotification]:
-        return parse_bytes(self.transport.recv())
+    def recv(self, ignore_keepalive: bool = True) -> list[BGPKeepAlive | BGPOpen | BGPUpdate | BGPNotification]:
+        msg = parse_bytes(self.transport.recv())
+        while isinstance(msg[0], BGPKeepAlive) and ignore_keepalive:
+            msg = parse_bytes(self.transport.recv())
+        if isinstance(msg[0], BGPNotification):
+            raise IOError(f'BGP Peer sent a BGP Notification error message.\n{msg}')
+        return msg
 
-    def sendrecv(self, bgp_messages: list[BGPKeepAlive | BGPOpen | BGPUpdate | BGPNotification] | BGPKeepAlive | BGPOpen | BGPUpdate | BGPNotification) -> list[BGPKeepAlive | BGPOpen | BGPUpdate | BGPNotification]:
+    def sendrecv(self, bgp_messages: list[BGPKeepAlive | BGPOpen | BGPUpdate | BGPNotification] | BGPKeepAlive | BGPOpen | BGPUpdate | BGPNotification, ignore_keepalive: bool = True) -> list[BGPKeepAlive | BGPOpen | BGPUpdate | BGPNotification]:
         self.send(bgp_messages)
-        return self.recv()
+        return self.recv(ignore_keepalive=ignore_keepalive)
 
     def close(self):
         self.transport.close()
         self.keepalive_thread = None
         self.recv_thread = None
 
-    def start(self, callback=None):
-        if self.keepalive_thread is not None or self.recv_thread is not None:
-            raise RuntimeError('Session already started.')
+    def start_keepalive(self):
+        if self.keepalive_thread is not None:
+            raise RuntimeError('Keepalive thread already started.')
         self.keepalive_thread = threading.Thread(target=self.__keepalive_loop)
         self.keepalive_thread.start()
-        if callback is not None:
-            self.recv_thread = threading.Thread(target=self.__recv_loop, args=(callback, ))
-            self.recv_thread.start()
+
+    def start_recv(self, callback):
+        if self.recv_thread is not None:
+            raise RuntimeError('Receive thread already started.')
+        self.recv_thread = threading.Thread(target=self.__recv_loop, args=(callback, ))
+        self.recv_thread.start()
 
     def __recv_loop(self, callback):
         while self.transport.socket is not None:
