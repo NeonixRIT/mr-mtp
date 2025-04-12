@@ -238,9 +238,16 @@ class BGPPeer:
 
         # Exchange BGPUpdate messages
         update_messages: list[BGPUpdate] = self.create_updates(bgp_session)
+
+        # Continue sendrecv until response update message is found
         parsed_msg3 = bgp_session.sendrecv(update_messages)
-        for msg in parsed_msg3:
-            verify_message_type(msg, BGPUpdate)
+        while True:
+            if isinstance(parsed_msg3[0], BGPKeepAlive):
+                parsed_msg3 = bgp_session.sendrecv(self.create_keepalive())
+                continue
+            for msg in parsed_msg3:
+                verify_message_type(msg, BGPUpdate)
+            break
 
         peer_update_msgs: BGPUpdate = parsed_msg3
 
